@@ -1,0 +1,11 @@
+{
+    "llama4-maverick-instruct-basic": {
+      "input": 0.00022,
+      "output": 0.00088
+    },
+    "gpt_4o": {
+      "input": 0.0025,
+      "output": 0.01
+    }
+  }
+  

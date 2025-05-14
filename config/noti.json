@@ -1,0 +1,6 @@
+{
+    "noti_pf": ["kakao", "discord", "gmail", "slack"],
+    "record_pf" : ["notion", "google_drive", "slack"],
+    "timezone": "Asia/Seoul",
+    "log_format": "jsonl"
+}

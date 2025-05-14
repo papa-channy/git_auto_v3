@@ -1,0 +1,11 @@
+{
+  "style": {
+    "commit_chunk": "internal_detail",
+    "commit_final": "internal_detail",
+    "record": "doc_writing"
+  },
+  "language": {
+    "commit": "ko",
+    "record": "ko"
+  }
+}
