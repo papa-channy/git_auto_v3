@@ -18,41 +18,41 @@ log() {
 }
 
 log "🚀 auto.sh launched"
+python "$PY_PATH"
+# # VSCode 종료 감지용 상태 플래그
+# was_alive=true
 
-# VSCode 종료 감지용 상태 플래그
-was_alive=true
+# # VSCode 마지막 경로 추출 함수
+# get_last_vscode_dir() {
+#     grep -oE '"file://[^"]+"' "$STORAGE_FILE" | head -1 | sed 's|"file://||' | sed 's|"||'
+# }
 
-# VSCode 마지막 경로 추출 함수
-get_last_vscode_dir() {
-    grep -oE '"file://[^"]+"' "$STORAGE_FILE" | head -1 | sed 's|"file://||' | sed 's|"||'
-}
+# while true; do
+#     sleep 10
 
-while true; do
-    sleep 10
+#     if pgrep -f "Code.exe" > /dev/null; then
+#         was_alive=true
+#     else
+#         if [ "$was_alive" = true ]; then
+#             DIR=$(get_last_vscode_dir)
 
-    if pgrep -f "Code.exe" > /dev/null; then
-        was_alive=true
-    else
-        if [ "$was_alive" = true ]; then
-            DIR=$(get_last_vscode_dir)
+#             if [ -d "$DIR/.git" ]; then
+#                 cd "$DIR" || exit
 
-            if [ -d "$DIR/.git" ]; then
-                cd "$DIR" || exit
+#                 ORIGIN=$(git config --get remote.origin.url | sed 's#.*/##' | sed 's/.git$//')
+#                 NAME=$(basename "$DIR")
 
-                ORIGIN=$(git config --get remote.origin.url | sed 's#.*/##' | sed 's/.git$//')
-                NAME=$(basename "$DIR")
+#                 if [ "$ORIGIN" = "$NAME" ]; then
+#                     log "✅ 실행 조건 충족: $DIR → runall.py 실행"
+#                     python "$PY_PATH"
+#                 else
+#                     log "⚠️ origin 이름 불일치 ($ORIGIN != $NAME) → skip"
+#                 fi
+#             else
+#                 log "❌ .git 폴더 없음 → $DIR 무시됨"
+#             fi
 
-                if [ "$ORIGIN" = "$NAME" ]; then
-                    log "✅ 실행 조건 충족: $DIR → runall.py 실행"
-                    python "$PY_PATH"
-                else
-                    log "⚠️ origin 이름 불일치 ($ORIGIN != $NAME) → skip"
-                fi
-            else
-                log "❌ .git 폴더 없음 → $DIR 무시됨"
-            fi
-
-            was_alive=false
-        fi
-    fi
-done
+#             was_alive=false
+#         fi
+#     fi
+# done

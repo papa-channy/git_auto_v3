@@ -4,8 +4,8 @@ import json
 import time
 import tiktoken
 from pathlib import Path
-from dataframe import load_df, save_df, REPO_PATH, INFO_PATH, STRATEGY_PATH, PROMPT_PATH, init_prompt_df
-from llm_router import call_llm
+from scripts.dataframe import load_df, save_df, REPO_PATH, INFO_PATH, STRATEGY_PATH, PROMPT_PATH, init_prompt_df
+from scripts.llm_router import call_llm
 
 def log(message: str, log_file: Path):
     with log_file.open("a", encoding="utf-8") as f:
@@ -29,17 +29,17 @@ def gen_msg_main():
     log_dir = Path(f"logs/{timestamp}")
     log_dir.mkdir(parents=True, exist_ok=True)
     log_file = log_dir / "trigger.log"
-    root_path = Path(repo_df["루트 path"].iloc[0])
+    root_path = Path(repo_df["root path"].iloc[0])
     enc = tiktoken.encoding_for_model(llm_cfg["model"][0])
 
     # 프롬프트 템플릿 미리 로딩
     prompt_template = Path(f"prompt/{commit_lang}/{commit_style}.txt").read_text(encoding="utf-8")
 
     for row in strategy_df.itertuples():
-        filename = row.파일
-        file_path = root_path / "/".join(info_df[info_df["파일"] == filename]["파일 위치"].iloc[0])
+        filename = row.FILE
+        file_path = root_path / "/".join(info_df[info_df["FILE"] == filename]["FILE 위치"].iloc[0])
         if not file_path.exists():
-            log(f"❌ 파일 없음: {file_path}", log_file)
+            log(f"❌ FILE 없음: {file_path}", log_file)
             continue
 
         # 📄 스크립트 텍스트 추출
@@ -53,12 +53,12 @@ def gen_msg_main():
         # 🧠 기능 요약 텍스트 불러오기
         fx_path = log_dir / f"fx_out_{filename}.txt"
         if not fx_path.exists():
-            log(f"⚠️ fx_out 파일 없음: {fx_path}", log_file)
+            log(f"⚠️ fx_out FILE 없음: {fx_path}", log_file)
             continue
         fx_summary = fx_path.read_text(encoding="utf-8")
 
         # 🧾 diff 텍스트 불러오기
-        diff_var = info_df[info_df["파일"] == filename]["diff 변수명"].iloc[0]
+        diff_var = info_df[info_df["FILE"] == filename]["diff var name"].iloc[0]
         diff_path = Path(f"results/diff_final/{diff_var}.txt")
         if not diff_path.exists():
             log(f"⚠️ diff 텍스트 없음: {diff_path}", log_file)
@@ -66,7 +66,7 @@ def gen_msg_main():
         diff_txt = diff_path.read_text(encoding="utf-8")
 
         # 📌 최근 커밋 메시지
-        commit_msgs = info_df[info_df["파일"] == filename]["최근 커밋 메시지 5개"].iloc[0]
+        commit_msgs = info_df[info_df["FILE"] == filename]["5 LATEST COMMIT"].iloc[0]
         recent_commit = "\n".join(commit_msgs[:row.추출할_커밋_메시지_개수])
 
         # 🗂️ 폴더 구조
@@ -96,10 +96,10 @@ def gen_msg_main():
         prompt_file.write_text(full_prompt, encoding="utf-8")
         token_in = len(enc.encode(full_prompt))
         prompt_df.loc[len(prompt_df)] = {
-            "입력/출력": "입력", "변수명": f"commit_in_{filename}",
-            "사용 모델": llm_cfg["model"][0],
-            "사용한 정보(입력)or목적(출력)": "기능 요약, 폴더 구조, 최근 커밋 메시지, 변경 스크립트, diff",
-            "저장 위치": str(prompt_file), "업로드 여부": False,
+            "IN/OUT": "입력", "VAR NAME": f"commit_in_{filename}",
+            "사용 MODEL NAME": llm_cfg["model"][0],
+            "meta(in)or purpose(out)": "기능 요약, 폴더 구조, 최근 커밋 메시지, 변경 스크립트, diff",
+            "SAVE PATH": str(prompt_file), "업로드 여부": False,
             "upload platform": "", "token값": token_in,
             "비용($)": None, "비용(krw)": None
         }
@@ -112,10 +112,10 @@ def gen_msg_main():
         token_out = len(enc.encode(response))
 
         prompt_df.loc[len(prompt_df)] = {
-            "입력/출력": "출력", "변수명": f"commit_out_{filename}",
-            "사용 모델": llm_cfg["model"][0],
-            "사용한 정보(입력)or목적(출력)": "최종 커밋 메시지 생성",
-            "저장 위치": str(result_file), "업로드 여부": True,
+            "IN/OUT": "출력", "VAR NAME": f"commit_out_{filename}",
+            "사용 MODEL NAME": llm_cfg["model"][0],
+            "meta(in)or purpose(out)": "최종 커밋 메시지 생성",
+            "SAVE PATH": str(result_file), "업로드 여부": True,
             "upload platform": ["notify", "record"],
             "token값": token_out, "비용($)": None, "비용(krw)": None
         }

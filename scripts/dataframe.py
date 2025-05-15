@@ -1,76 +1,59 @@
 import pandas as pd
 from pathlib import Path
+from config.cfg import INFO_PATH, STRATEGY_PATH, REPO_PATH, PROMPT_PATH
 
-# ───────────────────────────────
-# 📁 경로 설정
-BASE_DIR = Path("results")
-INFO_PATH = BASE_DIR / "info_df.pkl"
-STRATEGY_PATH = BASE_DIR / "strategy_df.pkl"
-REPO_PATH = BASE_DIR / "repo_df.pkl"
-PROMPT_PATH = BASE_DIR / "prompt_df.pkl"
-
-# ───────────────────────────────
-# 🧱 1. 레포 단위 메타데이터
 def init_repo_df() -> pd.DataFrame:
     return pd.DataFrame(columns=[
         "Repo",               # 레포 이름
-        "주 브랜치",           # default/main
-        "브랜치 list",         # 전체 브랜치
-        "현재 브랜치",         # 현재 사용 중인 브랜치
-        "작업인원",           # 커밋한 사람 수
-        "루트 path",           # 절대 경로
-        "특정 기간 커밋 횟수",  # 최근 N일 커밋 수
-        "파일 유형별 개수",     # .py, .sh 등 카운트
-        "변경 파일 목록",       # diff 감지 파일들
-        "변경 요약 통계",       # git diff --stat
-        "readme 토큰 수"     # README.md 토큰 수
+        "Main branch",           # default/main
+        "Branch list",         # 전체 브랜치
+        "Current branch",         # 현재 사용 중인 브랜치
+        "Contributors",           # 커밋한 사람 수
+        "Root path",           # 절대 경로
+        "Commit frequency",  # 최근 N일 커밋 수
+        "File count",     # .py, .sh 등 카운트
+        "diff list",       # diff 감지 FILE들
+        "diff stat",       # git diff --stat
+        "Readme token"     # README.md 토큰 수
     ])
 
-# ───────────────────────────────
-# 🧱 2. 파일 단위 info_df
 def extract_file_parts(file_path: str):
     full_path = Path(file_path).resolve()
     return [part for part in full_path.parts if part not in [":", "/", "\\"]]
 
 def init_info_df(file_list: list[str]) -> pd.DataFrame:
     return pd.DataFrame({
-        "파일": [Path(f).name for f in file_list],
-        "파일 유형": [Path(f).suffix for f in file_list],
-        "파일 위치": [extract_file_parts(f) for f in file_list],
-        "파일 토큰 수": [0] * len(file_list),
-        "diff 변수명": [""] * len(file_list),
-        "diff 토큰 수": [0] * len(file_list),
-        "소속 폴더 파일개수": [0] * len(file_list),
-        "최근 수정 시간": [[] for _ in file_list],
-        "최근 커밋 메시지 5개": [[] for _ in file_list],
+        "file": [Path(f).name for f in file_list],
+        "file type": [Path(f).suffix for f in file_list],
+        "Path": [str(Path(f).parent) for f in file_list],
+        "file token": [0] * len(file_list),
+        "diff var name": [""] * len(file_list),
+        "diff token": [0] * len(file_list),
+        "Files in folder": [0] * len(file_list),
+        "last commit time": [[] for _ in file_list],
+        "5 latest commit": [[] for _ in file_list],
     })
 
-# ───────────────────────────────
-# 🧠 3. 전략 전용 strategy_df
 def init_strategy_df(file_list: list[str]) -> pd.DataFrame:
     return pd.DataFrame({
-        "파일": file_list,
-        "분석 전략": [None] * len(file_list),
-        "추출할 커밋 메시지 개수": [3] * len(file_list),
-        "작성 디테일 등급": [None] * len(file_list),
-        "작성 권장 길이": [None] * len(file_list),  # 토큰 기준 숫자
-        "기능 유형": [None] * len(file_list),
-        "중요도 점수": [None] * len(file_list),
-        "연관도 높은 파일 리스트": [[] for _ in file_list],
-        "readme 전략": [[False, "x"]] * len(file_list),  # ex: [True, "summary"]
+        "file": file_list,
+        "file strategy": [None] * len(file_list),
+        "Num of extract file": [3] * len(file_list),
+        "Required Commit Detail": [None] * len(file_list),
+        "Recommended length": [None] * len(file_list),  # 토큰 기준 숫자
+        "Component Type": [None] * len(file_list),
+        "Importance": [None] * len(file_list),
+        "Most Related Files": [[] for _ in file_list],
+        "Readme strategy": [[False, "x"]] * len(file_list),  # ex: [True, "summary"]
     })
 
-# ───────────────────────────────
-# 🧠 4. 프롬프트 추적
 def init_prompt_df() -> pd.DataFrame:
     return pd.DataFrame(columns=[
-        "입력/출력","변수명", "사용 모델","사용한 정보(입력)or목적(출력)", "저장 위치",
-        "업로드 여부", "upload platform",
-        "token값", "비용($)", "비용(krw)"
+        "In/Out","var name", "model name","meta(in)or purpose(out)", "save path",
+        "Is upload", "upload pf",
+        "token", "cost($)", "cost(krw)"
     ])
 
-# ───────────────────────────────
-# 📦 공용 유틸
 def convert_columns_to_english(df: pd.DataFrame, mapping: dict) -> pd.DataFrame:
     return df.rename(columns=mapping)
 

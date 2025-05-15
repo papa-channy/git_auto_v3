@@ -1,12 +1,12 @@
-from datetime import datetime
 import json
+from datetime import datetime
 from pathlib import Path
-from dataframe import load_df, save_df, STRATEGY_PATH
+from scripts.dataframe import load_df, save_df, STRATEGY_PATH
 
 
 def classify_strategy(row):
-    file_tok = row["파일 토큰 수"]
-    diff_tok = row["diff 토큰 수"]
+    file_tok = row["file token"]
+    diff_tok = row["diff token"]
 
     if file_tok <= 300 and diff_tok <= 200:
         return "full_pass"
@@ -29,14 +29,14 @@ def fst_mapper_main():
     log_dir.mkdir(parents=True, exist_ok=True)
     log_file = log_dir / "trigger.log"
 
-    df["분석 전략"] = df.apply(classify_strategy, axis=1)
-    log("✅ 분석 전략 분류 완료", log_file)
+    df["FILE STRATEGY"] = df.apply(classify_strategy, axis=1)
+    log("✅ FILE STRATEGY 분류 완료", log_file)
 
-    review_files = df[df["중요도 점수"] >= 9]["파일"].tolist()
+    review_files = df[df["IMPORTANCE"] >= 9]["FILE"].tolist()
     review_path = Path(STRATEGY_PATH).parent / "manual_review.json"
     with open(review_path, "w", encoding="utf-8") as f:
         json.dump(review_files, f, ensure_ascii=False, indent=2)
-    log(f"⚠️ 중요도 9 이상 파일 {len(review_files)}개 기록 완료 → {review_path}", log_file)
+    log(f"⚠️ 중요도 9 이상 FILE {len(review_files)}개 기록 완료 → {review_path}", log_file)
 
     save_df(df, STRATEGY_PATH)
     log("✅ strategy_df 저장 완료", log_file)

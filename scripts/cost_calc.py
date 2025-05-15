@@ -1,13 +1,11 @@
-from datetime import datetime, timedelta
-import json
+import requests, json
 import pandas as pd
 from pathlib import Path
-import requests
+from datetime import datetime, timedelta
 from bs4 import BeautifulSoup
 from openpyxl import Workbook, load_workbook
 from openpyxl.utils.dataframe import dataframe_to_rows
-from dataframe import load_df, save_df, PROMPT_PATH
-
+from scripts.dataframe import load_df, save_df, PROMPT_PATH
 
 def get_usd_exchange_rate(log) -> float:
     ex_path = Path("cost/ex_rate.txt")
@@ -64,9 +62,9 @@ def calculate_llm_costs_from_df(timestamp: str, log):
 
     usd_list, krw_list = [], []
     for _, row in df.iterrows():
-        model = row["사용 모델"]
-        in_token = row["token값"] if row["입력/출력"] == "입력" else 0
-        out_token = row["token값"] if row["입력/출력"] == "출력" else 0
+        model = row["사용 MODEL NAME"]
+        in_token = row["token값"] if row["IN/OUT"] == "입력" else 0
+        out_token = row["token값"] if row["IN/OUT"] == "출력" else 0
 
         in_rate = rate_config[model]["input"]
         out_rate = rate_config[model]["output"]
@@ -80,6 +78,6 @@ def calculate_llm_costs_from_df(timestamp: str, log):
     df["비용(krw)"] = krw_list
 
     save_df(df, PROMPT_PATH)
-    append_to_excel(df[["datetime", "입력/출력", "변수명", "사용 모델", "token값", "비용($)", "비용(krw)"]], timestamp, "cost/git_cost.xlsx", log)
+    append_to_excel(df[["datetime", "IN/OUT", "VAR NAME", "사용 MODEL NAME", "token값", "비용($)", "비용(krw)"]], timestamp, "cost/git_cost.xlsx", log)
     return df
 

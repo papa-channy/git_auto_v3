@@ -3,12 +3,12 @@ import os
 import json
 import pandas as pd
 import tiktoken
-from dataframe import (
+from scripts.dataframe import (
     load_df, save_df,
     REPO_PATH, INFO_PATH, STRATEGY_PATH, PROMPT_PATH,
     init_prompt_df
 )
-from llm_router import call_llm
+from scripts.llm_router import call_llm
 
 
 def split_chunks(lst, n):
@@ -27,59 +27,59 @@ def log(message: str, log_file: str):
 
 
 def build_strategy_pp(repo_df, info_df, strategy_df, file_chunk):
-    files_info = info_df[info_df["파일"].isin(file_chunk)].to_dict(orient="records")
-    readme_map = {row["파일"]: row["readme 전략"] for _, row in strategy_df.iterrows()}
-    readme_summary = {f["파일"]: readme_map[f["파일"]] for f in file_chunk}
-    recent_commits = info_df[info_df["파일"].isin(file_chunk)]["최근 커밋 메시지 5개"].to_dict()
+    files_info = info_df[info_df["FILE"].isin(file_chunk)].to_dict(orient="records")
+    readme_map = {row["FILE"]: row["readme strategy"] for _, row in strategy_df.iterrows()}
+    readme_summary = {f["FILE"]: readme_map[f["FILE"]] for f in file_chunk}
+    recent_commits = info_df[info_df["FILE"].isin(file_chunk)]["5 LATEST COMMIT"].to_dict()
 
     prompt = f"""
-📌 요청 목적:
-각 변경 파일에 대해 다음 정보를 JSON 형식으로 예측해주세요:
-- 작성 디테일 등급 (int, 1~5)
-- 기능 유형 (str)
-- 중요도 점수 (int, 0~10)
-- 연관도 높은 파일 리스트 (list[str], 최대 3개)
+Objective:
+For each modified file, predict the following information in JSON format:
+- Required Commit Detail (int, 1~5)
+- Component Type
+- Importance (int, 0~10)
+- Most Related Files (list[str], up to 3)
 
-📌 출력 JSON 예시:
+JSON Example:
 [
   {{
-    "파일": "ext_info.py",
-    "작성 디테일 등급": 4,
-    "기능 유형": "Git 메타 수집",
-    "중요도 점수": 9,
-    "연관도 높은 파일 리스트": ["dataframe.py", "llm_router.py", "gen_msg.py"]
+    "file": "ext_info.py",
+    "Required Commit Detail": 4,
+    "Component Type": "support",
+    "Importance": 9,
+    "Most Related Files": ["dataframe.py", "llm_router.py", "gen_msg.py"]
   }},
   ...
 ]
 
-📌 출력 형식 (형식 엄수):
+Output Format (follow strictly):
 [
   {{
-    "파일": str,
-    "작성 디테일 등급": int,
-    "기능 유형": str,
-    "중요도 점수": int,
-    "연관도 높은 파일 리스트": list[str]
+    "file": str,
+    "Required Commit Detail": int,
+    "Component Type": str,
+    "Importance": int,
+    "Most Related Files": list[str]
   }},
   ...
 ]
 
-📎 작성 디테일 등급 참고 정보:
-- 주 브랜치: {repo_df["주 브랜치"].iloc[0]}
-- 현재 브랜치: {repo_df["현재 브랜치"].iloc[0]}
-- 브랜치 목록: {repo_df["브랜치 list"].iloc[0]}
-- 변경 요약 통계: {repo_df["변경 요약 통계"].iloc[0]}
+Reference for Required Commit Detail:
+- Main branch: {repo_df["Main branch"].iloc[0]}
+- Current branch: {repo_df["Current branch"].iloc[0]}
+- Branch list: {repo_df["Branch list"].iloc[0]}
+- Change Overview: {repo_df["Change Overview"].iloc[0]}
 
-📎 레포 전체 폴더 구조:
-{repo_df["루트 path"].iloc[0]}
+Structure:
+{repo_df["Root path"].iloc[0]}
 
-📎 README 내용 요약 (파일별):
+README summary:
 {json.dumps(readme_summary, ensure_ascii=False)}
 
-📎 최근 커밋 메시지 5개 (파일별):
+Last 5 commit:
 {json.dumps(recent_commits, ensure_ascii=False)}
 
-📎 각 파일 정보:
+File meta:
 {json.dumps(files_info, ensure_ascii=False)}
 """
 
@@ -92,11 +92,11 @@ def mm_gen_main():
     strategy_df = load_df(STRATEGY_PATH)
     prompt_df = init_prompt_df()
 
-    file_list = strategy_df["파일"].tolist()
+    file_list = strategy_df["FILE"].tolist()
     n = len(file_list)
 
     if n > 60:
-        raise SystemExit("⚠️ 변경 파일 수가 60개 초과 → 작업 종료")
+        raise SystemExit("⚠️ 변경 FILE 수가 60개 초과 → 작업 종료")
 
     chunks = (
         split_chunks(file_list, 3) if n > 50 else
@@ -122,12 +122,12 @@ def mm_gen_main():
 
         token_in = len(enc.encode(st_pp_in))
         prompt_df.loc[len(prompt_df)] = {
-            "입력/출력": "입력",
-            "변수명": "st_pp_in",
-            "사용 모델": "gpt-4o",
-            "사용한 정보(입력)or목적(출력)": "폴더 구조, README 전략, 변경 파일 목록, 최근 커밋 메시지 5개, 브랜치 정보, 변경 요약 통계, 파일 유형, 파일 위치",
-            "저장 위치": in_path,
-            "업로드 여부": False,
+            "IN/OUT": "입력",
+            "VAR NAME": "st_pp_in",
+            "MODEL NAME": "gpt-4o",
+            "meta(in)or purpose(out)": "폴더 구조, README STRATEGY, 변경 FILE 목록, 5 LATEST COMMIT, 브랜치 정보, 변경 요약 통계, FILE 유형, FILE 위치",
+            "SAVE PATH": in_path,
+            "I": False,
             "upload platform": "",
             "token값": token_in,
             "비용($)": None,
@@ -142,11 +142,11 @@ def mm_gen_main():
 
         token_out = len(enc.encode(response))
         prompt_df.loc[len(prompt_df)] = {
-            "입력/출력": "출력",
-            "변수명": "st_pp_out",
-            "사용 모델": "gpt-4o",
-            "사용한 정보(입력)or목적(출력)": "strategy_df_value",
-            "저장 위치": out_path,
+            "IN/OUT": "출력",
+            "VAR NAME": "st_pp_out",
+            "사용 MODEL NAME": "gpt-4o",
+            "meta(in)or purpose(out)": "strategy_df_value",
+            "SAVE PATH": out_path,
             "업로드 여부": False,
             "upload platform": "",
             "token값": token_out,
@@ -159,11 +159,11 @@ def mm_gen_main():
         all_results.extend(parsed)
 
     for row in all_results:
-        idx = strategy_df[strategy_df["파일"] == row["파일"]].index[0]
+        idx = strategy_df[strategy_df["FILE"] == row["FILE"]].index[0]
         strategy_df.at[idx, "작성 디테일 등급"] = row["작성 디테일 등급"]
         strategy_df.at[idx, "기능 유형"] = row["기능 유형"]
-        strategy_df.at[idx, "중요도 점수"] = row["중요도 점수"]
-        strategy_df.at[idx, "연관도 높은 파일 리스트"] = row["연관도 높은 파일 리스트"]
+        strategy_df.at[idx, "IMPORTANCE"] = row["IMPORTANCE"]
+        strategy_df.at[idx, "연관도 높은 FILE 리스트"] = row["연관도 높은 FILE 리스트"]
 
     save_df(strategy_df, STRATEGY_PATH)
     save_df(prompt_df, PROMPT_PATH)

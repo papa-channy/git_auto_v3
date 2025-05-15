@@ -1,0 +1,30 @@
+change detection:
+  provider: [".py", ".sh", ".js", ".ts", ".html", ".css"]
+
+llm:
+  strategy:
+    provider: ["openai"]
+    model: ["gpt-4o"]
+  explain:
+    provider: ["fireworks"]
+    model: ["llama4-maverick-instruct-basic"]
+  mk_msg:
+    provider: ["fireworks"]
+    model: ["llama4-maverick-instruct-basic"]
+
+style:
+  language:
+    commit: "ko"             # "en" or "ko"
+  style:
+    commit_final: "internal_detail" # 템플릿명 (예: internal, solo_detail 등)
+
+notify:
+  platform: ["kakao", "discord", "gmail", "slack"]
+  language: "ko"
+record:
+  platform: ["notion"]
+  language: ["ko"]
+
+timezone:
+  commit: "Asia/Seoul" # "Asia/Seoul" or "UTC"
+  record: "Asia/Seoul" # "Asia/Seoul" or "UTC"

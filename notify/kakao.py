@@ -12,17 +12,17 @@ if env_path.exists():
 
 CLIENT_ID = os.getenv("KAKAO_CLIENT_ID")
 REFRESH_TOKEN = os.getenv("KAKAO_REFRESH_TOKEN")  # ✅ refresh_token은 .env에서 불러옴
-TOKEN_PATH = Path("config/kakao_token.json")       # ✅ access_token은 파일로 저장됨
+TOKEN_PATH = Path("config/kakao.json")       # ✅ access_token은 FILE로 저장됨
 API_URL = "https://kapi.kakao.com/v2/api/talk/memo/default/send"
 TOKEN_URL = "https://kauth.kakao.com/oauth/token"
 
-# 🔧 토큰 파일 로드
+# 🔧 토큰 FILE 로드
 def load_tokens():
     if TOKEN_PATH.exists():
         return json.loads(TOKEN_PATH.read_text(encoding="utf-8"))
     return {}
 
-# 🔧 토큰 파일 저장
+# 🔧 토큰 FILE 저장
 def save_tokens(data: dict):
     TOKEN_PATH.parent.mkdir(parents=True, exist_ok=True)
     TOKEN_PATH.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")

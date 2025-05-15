@@ -1,4 +1,6 @@
-import os, requests, random
+import os
+import requests
+import random
 from datetime import datetime
 from pathlib import Path
 from dotenv import load_dotenv
@@ -76,8 +78,8 @@ def create_paragraph_block(title: str, text: str):
         }
     }
 
-# ✅ 날짜별 기록 업로드
-def upload_date_based_record(context: str, chunk_summary: str, record_msg: str):
+# ✅ 날짜별 기록 업로드 (fx_out 단일 묶음)
+def upload_fx_record(filename: str, fx_text: str):
     now = datetime.now()
     repo_name = get_repo_name()
     top_toggle = f"📁 {repo_name}"
@@ -90,9 +92,7 @@ def upload_date_based_record(context: str, chunk_summary: str, record_msg: str):
         time_id = find_or_create_toggle_block(mid_id, time_toggle)
 
         blocks = [
-            create_paragraph_block("📘 전체 맥락", context),
-            create_paragraph_block("📂 커밋 요약", chunk_summary),
-            create_paragraph_block("📝 집필용 기록", record_msg)
+            create_paragraph_block(f"📘 FILE: {filename}", fx_text)
         ]
         requests.patch(
             f"{NOTION_URL_BASE}/blocks/{time_id}/children",
@@ -100,30 +100,5 @@ def upload_date_based_record(context: str, chunk_summary: str, record_msg: str):
             json={"children": blocks}
         )
     except Exception as e:
-        print(f"[NOTION] ❌ 날짜 기반 기록 업로드 실패: {e}")
+        print(f"[NOTION] ❌ fx 기록 업로드 실패: {e}")
 
-# ✅ 집필용 모음 업로드
-def upload_sequential_record(repo_name: str, record_msgs: list[str]):
-    try:
-        top_id = find_or_create_toggle_block(NOTION_PAGE_ID, "📘 집필용 기록 모음")
-        repo_id = find_or_create_toggle_block(top_id, f"📘 Repo명 : {repo_name}")
-
-        children = []
-        for i, msg in enumerate(record_msgs):
-            label = NUM_EMOJIS[i % len(NUM_EMOJIS)]
-            children.append({
-                "object": "block",
-                "type": "toggle",
-                "toggle": {
-                    "rich_text": [{"type": "text", "text": {"content": label}}],
-                    "children": [create_paragraph_block("", msg)]
-                }
-            })
-
-        requests.patch(
-            f"{NOTION_URL_BASE}/blocks/{repo_id}/children",
-            headers=HEADERS,
-            json={"children": children}
-        )
-    except Exception as e:
-        print(f"[NOTION] ❌ 집필용 기록 모음 업로드 실패: {e}")

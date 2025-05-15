@@ -2,7 +2,7 @@ import os, json, subprocess, requests, shutil
 from pathlib import Path
 from dotenv import load_dotenv
 import getpass
-from utils.path import get_git_root
+from config.cfg import get_git_root
 # ────────────────────────────────
 # 🔹 환경변수 로딩
 # ────────────────────────────────
@@ -48,7 +48,7 @@ def enforce_git_core_config():
     print_status("core.autocrlf / quotepath", "적용 완료")
 
 # ────────────────────────────────
-# 🔹 필수 파일 (.editorconfig, .gitattributes)
+# 🔹 필수 FILE (.editorconfig, .gitattributes)
 # ────────────────────────────────
 def ensure_required_files():
     base = Path(__file__).parent.resolve()
@@ -58,7 +58,7 @@ def ensure_required_files():
         (base / ".editorconfig").write_text(
             "[*]\nend_of_line = lf\ninsert_final_newline = true\ncharset = utf-8\n", encoding="utf-8"
         )
-    print_status("필수 설정 파일", "확인 완료")
+    print_status("필수 설정 FILE", "확인 완료")
 
 # ────────────────────────────────
 # 🔹 Git 레포 상태 점검
@@ -78,7 +78,7 @@ def check_git_remote():
     print_status("원격 저장소", "접근 성공")
 
 # ────────────────────────────────
-# 🔹 설정 파일 로딩 (config/*.json)
+# 🔹 설정 FILE 로딩 (config/*.json)
 # ────────────────────────────────
 def load_config():
     base_path = Path(__file__).parent.resolve() / "config"
@@ -87,10 +87,10 @@ def load_config():
     for cfg in required_configs:
         cfg_path = base_path / cfg
         if not cfg_path.exists():
-            print_status(f"설정 파일 {cfg}", "없음", "fail")
+            print_status(f"설정 FILE {cfg}", "없음", "fail")
             exit(1)
 
-    print_status("모든 설정 파일", "확인 완료")
+    print_status("모든 설정 FILE", "확인 완료")
     return json.loads((base_path / "noti.json").read_text(encoding="utf-8"))
 
 # ────────────────────────────────
