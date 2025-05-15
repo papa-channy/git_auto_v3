@@ -1,6 +1,6 @@
 import importlib
 
-def call_llm(prompt: str, llm_cfg: dict) -> str:
+def call_llm(prompt: str, llm_cfg: dict, log=None) -> str:
     providers = llm_cfg["provider"]
     models = llm_cfg["model"]
     llm_param = {
@@ -15,6 +15,8 @@ def call_llm(prompt: str, llm_cfg: dict) -> str:
             module = importlib.import_module(f"llm.{model}")
             return module.call(prompt, llm_param)
         except Exception as e:
+            if log:
+                log(f"⚠️ {model} 호출 실패: {e}")
             continue
 
     raise RuntimeError("❌ 모든 LLM 호출 실패: fallback 실패")

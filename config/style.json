@@ -1,7 +1,6 @@
 {
   "style": {
-    "commit_chunk": "internal_detail",
-    "commit_final": "internal_detail",
+    "commit": "internal_detail",
     "record": "doc_writing"
   },
   "language": {
