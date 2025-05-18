@@ -1,0 +1,273 @@
+diff --git a/scripts/mm_gen.py b/scripts/mm_gen.py
+index 25e58d2..9178c1f 100644
+--- a/scripts/mm_gen.py
++++ b/scripts/mm_gen.py
+@@ -1,15 +1,11 @@
+-from datetime import datetime
+-import os
+ import json
+ import pandas as pd
+-import tiktoken
+-from scripts.dataframe import (
+-    load_df, save_df,
+-    REPO_PATH, INFO_PATH, STRATEGY_PATH, PROMPT_PATH,
+-    init_prompt_df
+-)
+-from scripts.llm_router import call_llm
++from scripts.dataframe import load_df, save_df
++from utils.cfg import cfg
++from scripts.llm_mng import LLMManager
++from concurrent.futures import ThreadPoolExecutor, as_completed
+ 
++CHUNK_THRESHOLDS = [(50, 3), (20, 2)]
+ 
+ def split_chunks(lst, n):
+     avg = len(lst) / float(n)
+@@ -20,30 +16,32 @@ def split_chunks(lst, n):
+         last += avg
+     return out
+ 
++def build_strategy_pp(repo_df, info_df, strategy_df, file_chunk):
++    files_info = info_df[info_df["file"].isin(file_chunk)].to_dict(orient="records")
++    readme_map = {row["File"]: row["Readme strategy"] for _, row in strategy_df.iterrows()}
++    readme_summary = {f["file"]: readme_map.get(f["file"], [False, "x"]) for f in files_info}
++    recent_commits = info_df[info_df["file"].isin(file_chunk)]["5 latest commit"].to_dict()
+ 
+-def log(message: str, log_file: str):
+-    with open(log_file, "a", encoding="utf-8") as f:
+-        f.write(f"[{datetime.now().strftime('%H:%M:%S')}] {message}\n")
++    prompt = f"""📌 Objective:
++For each modified file, predict the following information in **valid JSON array format**:
+ 
++Each result must correspond to a file from the list below:
++{file_chunk}
+ 
+-def build_strategy_pp(repo_df, info_df, strategy_df, file_chunk):
+-    files_info = info_df[info_df["FILE"].isin(file_chunk)].to_dict(orient="records")
+-    readme_map = {row["FILE"]: row["readme strategy"] for _, row in strategy_df.iterrows()}
+-    readme_summary = {f["FILE"]: readme_map[f["FILE"]] for f in file_chunk}
+-    recent_commits = info_df[info_df["FILE"].isin(file_chunk)]["5 LATEST COMMIT"].to_dict()
+-
+-    prompt = f"""
+-Objective:
+-For each modified file, predict the following information in JSON format:
+-- Required Commit Detail (int, 1~5)
+-- Component Type
+-- Importance (int, 0~10)
+-- Most Related Files (list[str], up to 3)
+-
+-JSON Example:
++Each item must include:
++- "File": exact filename from the list above
++- "Required Commit Detail" (int, 1~5)
++- "Component Type" (str)
++- "Importance" (int, 0~10)
++- "Most Related Files": up to 3 other files from the list (not including itself)
++
++Do NOT include the file itself in "Most Related Files".
++
++✅ Output Format (required):
++List[Dict], e.g.
+ [
+   {{
+-    "file": "ext_info.py",
++    "File": "ext_info.py",
+     "Required Commit Detail": 4,
+     "Component Type": "support",
+     "Importance": 9,
+@@ -52,119 +50,94 @@ JSON Example:
+   ...
+ ]
+ 
+-Output Format (follow strictly):
+-[
+-  {{
+-    "file": str,
+-    "Required Commit Detail": int,
+-    "Component Type": str,
+-    "Importance": int,
+-    "Most Related Files": list[str]
+-  }},
+-  ...
+-]
+-
+-Reference for Required Commit Detail:
+-- Main branch: {repo_df["Main branch"].iloc[0]}
+-- Current branch: {repo_df["Current branch"].iloc[0]}
+-- Branch list: {repo_df["Branch list"].iloc[0]}
+-- Change Overview: {repo_df["Change Overview"].iloc[0]}
+-
+-Structure:
+-{repo_df["Root path"].iloc[0]}
++📚 Meta data per file:
++{json.dumps(files_info, ensure_ascii=False)}
+ 
+-README summary:
++📝 README summary per file:
+ {json.dumps(readme_summary, ensure_ascii=False)}
+ 
+-Last 5 commit:
++🕓 Last 5 commits per file:
+ {json.dumps(recent_commits, ensure_ascii=False)}
+ 
+-File meta:
+-{json.dumps(files_info, ensure_ascii=False)}
++📂 Repository Structure:
++- Root: {repo_df["Root path"].iloc[0]}
++- Branch: {repo_df["Current branch"].iloc[0]}
++- Main: {repo_df["Main branch"].iloc[0]}
++- All branches: {repo_df["Branch list"].iloc[0]}
++
++📊 Git Change Summary:
++{repo_df["Diff stat"].iloc[0]}
++
++Return ONLY a JSON array (no explanation or comments).
+ """
++    return str(prompt)
+ 
+-    return prompt
+ 
+-# 🎯 전체 실행 함수
++def clean_llm_response(response: str) -> str:
++    lines = response.strip().splitlines()
++    lines = [line for line in lines if not line.strip().startswith(("```", "'''"))]
++    return "\n".join(lines).strip()
++
+ def mm_gen_main():
+-    repo_df = load_df(REPO_PATH)
+-    info_df = load_df(INFO_PATH)
+-    strategy_df = load_df(STRATEGY_PATH)
+-    prompt_df = init_prompt_df()
++    timestamp = cfg.get_timestamp()
++    paths = cfg.get_results_path(timestamp)
++    log_file = cfg.init_log_file(timestamp)
+ 
+-    file_list = strategy_df["FILE"].tolist()
+-    n = len(file_list)
++    repo_df = load_df(paths["repo"])
++    info_df = load_df(paths["info"])
++    strategy_df = load_df(paths["strategy"])
+ 
++    file_list = strategy_df["File"].tolist()
++    n = len(file_list)
+     if n > 60:
+-        raise SystemExit("⚠️ 변경 FILE 수가 60개 초과 → 작업 종료")
++        raise SystemExit("⚠️ 변경 파일 수가 60개 초과 → 작업 종료")
+ 
+-    chunks = (
+-        split_chunks(file_list, 3) if n > 50 else
+-        split_chunks(file_list, 2) if n > 20 else
+-        [file_list]
+-    )
++    for threshold, chunk_count in CHUNK_THRESHOLDS:
++        if n > threshold:
++            chunks = split_chunks(file_list, chunk_count)
++            cfg.log(f"📦 {n}개 파일 → {chunk_count} 청크 분할", log_file)
++            break
++    else:
++        chunks = [file_list]
+ 
+     all_results = []
+-    enc = tiktoken.encoding_for_model("gpt-4")
+-
+-    timestamp = datetime.now().strftime("%y%m%d_%H%M")
+-    log_dir = f"logs/{timestamp}"
+-    os.makedirs(log_dir, exist_ok=True)
+-    log_file = f"{log_dir}/trigger.log"
+-
+-    for chunk in chunks:
+-        st_pp_in = build_strategy_pp(repo_df, info_df, strategy_df, chunk)
+-
+-        in_path = f"{log_dir}/st_pp_in.txt"
+-        with open(in_path, "w", encoding="utf-8") as f:
+-            f.write(st_pp_in)
+-        log(f"✅ 프롬프트 생성 완료: {in_path}", log_file)
+-
+-        token_in = len(enc.encode(st_pp_in))
+-        prompt_df.loc[len(prompt_df)] = {
+-            "IN/OUT": "입력",
+-            "VAR NAME": "st_pp_in",
+-            "MODEL NAME": "gpt-4o",
+-            "meta(in)or purpose(out)": "폴더 구조, README STRATEGY, 변경 FILE 목록, 5 LATEST COMMIT, 브랜치 정보, 변경 요약 통계, FILE 유형, FILE 위치",
+-            "SAVE PATH": in_path,
+-            "I": False,
+-            "upload platform": "",
+-            "token값": token_in,
+-            "비용($)": None,
+-            "비용(krw)": None
+-        }
+-
+-        response = call_llm(prompt=st_pp_in, model="gpt-4o")
+-        out_path = f"{log_dir}/st_pp_out.txt"
+-        with open(out_path, "w", encoding="utf-8") as f:
+-            f.write(response)
+-        log(f"✅ GPT-4o 응답 저장 완료: {out_path}", log_file)
+-
+-        token_out = len(enc.encode(response))
+-        prompt_df.loc[len(prompt_df)] = {
+-            "IN/OUT": "출력",
+-            "VAR NAME": "st_pp_out",
+-            "사용 MODEL NAME": "gpt-4o",
+-            "meta(in)or purpose(out)": "strategy_df_value",
+-            "SAVE PATH": out_path,
+-            "업로드 여부": False,
+-            "upload platform": "",
+-            "token값": token_out,
+-            "비용($)": None,
+-            "비용(krw)": None
+-        }
+-
+-        parsed = json.loads(response)
+-        log("✅ 파싱 성공 및 strategy_df 반영 중...", log_file)
+-        all_results.extend(parsed)
+-
++    required_keys = {"File", "Required Commit Detail", "Component Type", "Importance", "Most Related Files"}
++
++    with LLMManager("strategy", repo_df, df_for_call=strategy_df) as llm:
++        for i, chunk in enumerate(chunks):
++            prompt_in = build_strategy_pp(repo_df, info_df, strategy_df, chunk)
++            if not isinstance(prompt_in, str):
++                cfg.log(f"❌ [DEBUG] prompt_in 타입 이상: {type(prompt_in)}", log_file)
++                raise TypeError(f"prompt_in is not a string → {type(prompt_in)}")
++            try:
++                response = llm.call_all([prompt_in], [f"chunk_{i+1}"])[0]  # ✅ 수정
++                cleaned = clean_llm_response(response)
++                parsed = json.loads(cleaned)
++                for row in parsed:
++                    if not required_keys.issubset(row):
++                        cfg.log(f"⚠️ 필드 누락 → 무시됨: {row}", log_file)
++                        continue
++                    if row["Importance"] <= 3:
++                        continue
++                    all_results.append(row)
++            except json.JSONDecodeError as e:
++                cfg.log(f"❌ JSON 파싱 실패: {e}", log_file)
++                cfg.log(f"응답 내용:\n{response}", log_file)
++                raise SystemExit("🚫 LLM 응답 파싱 실패 → JSON 헤더 제거 여부 확인 필요")
++            except Exception as e:
++                cfg.log(f"❌ LLM 호출 실패: {e}", log_file)
++                raise SystemExit("🚫 LLM 호출 실패 → 파이프라인 중단")
+     for row in all_results:
+-        idx = strategy_df[strategy_df["FILE"] == row["FILE"]].index[0]
+-        strategy_df.at[idx, "작성 디테일 등급"] = row["작성 디테일 등급"]
+-        strategy_df.at[idx, "기능 유형"] = row["기능 유형"]
+-        strategy_df.at[idx, "IMPORTANCE"] = row["IMPORTANCE"]
+-        strategy_df.at[idx, "연관도 높은 FILE 리스트"] = row["연관도 높은 FILE 리스트"]
+-
+-    save_df(strategy_df, STRATEGY_PATH)
+-    save_df(prompt_df, PROMPT_PATH)
+-    log("✅ 전략 결과 및 프롬프트 추적 저장 완료", log_file)
+\ No newline at end of file
++        idx = strategy_df[strategy_df["File"] == row["File"]].index
++        if len(idx) == 0:
++            cfg.log(f"⚠️ 일치하는 파일 없음: {row['File']}", log_file)
++            continue
++        idx = idx[0]
++        strategy_df.at[idx, "Required Commit Detail"] = row["Required Commit Detail"]
++        strategy_df.at[idx, "Component Type"] = row["Component Type"]
++        strategy_df.at[idx, "Importance"] = row["Importance"]
++        strategy_df.at[idx, "Most Related Files"] = row["Most Related Files"]
++
++    save_df(strategy_df, paths["strategy"])
++    cfg.log("✅ 전략 결과 및 프롬프트 저장 완료", log_file)
++

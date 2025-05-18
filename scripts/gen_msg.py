@@ -1,80 +1,103 @@
-from datetime import datetime
-import os
-import json
-import time
-import tiktoken
 from pathlib import Path
-from scripts.dataframe import load_df, save_df, REPO_PATH, INFO_PATH, STRATEGY_PATH, PROMPT_PATH, init_prompt_df
-from scripts.llm_router import call_llm
+from scripts.dataframe import load_df
+from scripts.ext_info import to_safe_filename
+from utils.cfg import cfg
+from scripts.llm_mng import LLMManager
+import pandas as pd
 
-def log(message: str, log_file: Path):
-    with log_file.open("a", encoding="utf-8") as f:
-        f.write(f"[{datetime.now().strftime('%H:%M:%S')}] {message}\n")
+def select_prompt_template(length: int, importance: int) -> str:
+    if length >= 500 or importance >= 8:
+        return "internal_detail"
+    elif length >= 200:
+        return "internal"
+    else:
+        return "solo_detail"
 
 def gen_msg_main():
-    repo_df = load_df(REPO_PATH)
-    info_df = load_df(INFO_PATH)
-    strategy_df = load_df(STRATEGY_PATH)
-    prompt_df = init_prompt_df()
+    timestamp = cfg.get_timestamp()
+    paths = cfg.get_results_path(timestamp)
+    log_file = cfg.init_log_file(timestamp)
 
-    # 설정 로딩
-    style = json.loads(Path("config/style.json").read_text(encoding="utf-8"))
-    llm_cfgs = json.loads(Path("config/llm.json").read_text(encoding="utf-8"))
-    commit_style = style["style"]["commit_final"]
-    commit_lang = style["language"]["commit"]
-    llm_cfg = llm_cfgs["llm"]["commit_final"]
+    repo_df = load_df(paths["repo"])
+    info_df = load_df(paths["info"])
+    strategy_df = load_df(paths["strategy"])
 
-    # 로그 설정
-    timestamp = datetime.now().strftime("%y%m%d_%H%M")
-    log_dir = Path(f"logs/{timestamp}")
-    log_dir.mkdir(parents=True, exist_ok=True)
-    log_file = log_dir / "trigger.log"
-    root_path = Path(repo_df["root path"].iloc[0])
-    enc = tiktoken.encoding_for_model(llm_cfg["model"][0])
+    root_path = Path(repo_df["Root path"].iloc[0])
+    folder_lines, file_lines = cfg.build_llm_file_structure(root_path)
+    tree_txt = "\n".join(folder_lines + file_lines)
 
-    # 프롬프트 템플릿 미리 로딩
-    prompt_template = Path(f"prompt/{commit_lang}/{commit_style}.txt").read_text(encoding="utf-8")
+    prompts, tags, meta_rows = [], [], []
 
-    for row in strategy_df.itertuples():
-        filename = row.FILE
-        file_path = root_path / "/".join(info_df[info_df["FILE"] == filename]["FILE 위치"].iloc[0])
-        if not file_path.exists():
-            log(f"❌ FILE 없음: {file_path}", log_file)
+    lang = "ko"
+    for _, row in strategy_df.iterrows():
+        if row.get("Importance", 0) <= 3:
             continue
 
-        # 📄 스크립트 텍스트 추출
-        if row.분석_전략 == "full_pass":
-            script_txt = file_path.read_text(encoding="utf-8")
-        else:
-            lines = file_path.read_text(encoding="utf-8").splitlines()
-            keywords = ["def ", "return ", "class ", "self", "@", "from ", "logger"]
-            script_txt = "\n".join([line for line in lines if any(k in line for k in keywords)])
+        file = row["File"]
+        id_ = row["id"]
+        name4save = row["name4save"]
+        save_path = row["save_path"]
+        prompt_in_path = Path(save_path[3])  # mk_msg_in
+        prompt_out_path = Path(save_path[4])  # mk_msg_out
+        safe_file = to_safe_filename(file)
 
-        # 🧠 기능 요약 텍스트 불러오기
-        fx_path = log_dir / f"fx_out_{filename}.txt"
-        if not fx_path.exists():
-            log(f"⚠️ fx_out FILE 없음: {fx_path}", log_file)
+        info_row = info_df[info_df["file"] == file]
+        if info_row.empty:
+            cfg.log(f"[gen_msg] ⚠️ {file} 경로 정보 없음", log_file)
             continue
-        fx_summary = fx_path.read_text(encoding="utf-8")
 
-        # 🧾 diff 텍스트 불러오기
-        diff_var = info_df[info_df["FILE"] == filename]["diff var name"].iloc[0]
-        diff_path = Path(f"results/diff_final/{diff_var}.txt")
-        if not diff_path.exists():
-            log(f"⚠️ diff 텍스트 없음: {diff_path}", log_file)
+        file_path = Path(info_row["path"].iloc[0]) / safe_file
+        fx_path = Path(save_path[2])  # explain_out
+        diff_path = Path(save_path[0])  # diff
+
+        try:
+            fx_summary = fx_path.read_text(encoding="utf-8")
+        except Exception:
+            fx_summary = ""
+            cfg.log(f"[gen_msg] ❌ {file} 기능 요약 파일 읽기 실패", log_file)
+
+        try:
+            diff_txt = diff_path.read_text(encoding="utf-8")
+        except Exception:
+            diff_txt = ""
+            cfg.log(f"[gen_msg] ❌ {file} diff 파일 읽기 실패", log_file)
+
+        strategy = row["File strategy"]
+        try:
+            script_txt = (
+                file_path.read_text(encoding="utf-8")
+                if strategy == "full_pass"
+                else "\n".join([
+                    l for l in file_path.read_text(encoding="utf-8").splitlines()
+                    if any(k in l for k in ["def ", "return ", "class ", "self", "@", "from ", "logger"])
+                ])
+            )
+        except Exception:
+            script_txt = ""
+            cfg.log(f"[gen_msg] ❌ {file} 코드 읽기 실패", log_file)
+
+        try:
+            commit_list = info_row["5 latest commit"].iloc[0]
+            commit_summary = "\n".join(commit_list[:row["Num of extract file"]])
+        except Exception:
+            commit_summary = ""
+            cfg.log(f"[gen_msg] ⚠️ {file} 커밋 요약 추출 실패", log_file)
+
+        length = row.get("Recommended length", 300)
+        importance = row.get("Importance", 5)
+        style = select_prompt_template(length, importance)
+        template_path = Path(f"prompt/{lang}/{style}.txt")
+        if not template_path.exists():
+            cfg.log(f"[gen_msg] ❌ 템플릿 없음: {template_path}", log_file)
             continue
-        diff_txt = diff_path.read_text(encoding="utf-8")
 
-        # 📌 최근 커밋 메시지
-        commit_msgs = info_df[info_df["FILE"] == filename]["5 LATEST COMMIT"].iloc[0]
-        recent_commit = "\n".join(commit_msgs[:row.추출할_커밋_메시지_개수])
+        try:
+            base_prompt = template_path.read_text(encoding="utf-8")
+        except Exception:
+            cfg.log(f"[gen_msg] ❌ 템플릿 읽기 실패: {template_path}", log_file)
+            continue
 
-        # 🗂️ 폴더 구조
-        tree_txt_path = Path("results/context/tree.txt")
-        tree_txt = tree_txt_path.read_text(encoding="utf-8") if tree_txt_path.exists() else ""
-
-        # 🧾 프롬프트 생성
-        full_prompt = prompt_template.replace("{change}", f"""
+        full_prompt = base_prompt.replace("{change}", f"""
 📘 기능 요약:
 {fx_summary}
 
@@ -85,43 +108,33 @@ def gen_msg_main():
 {script_txt}
 
 📌 최근 커밋 메시지:
-{recent_commit}
+{commit_summary}
 
 🧾 변경 사항(diff):
 {diff_txt}
 """).strip()
 
-        # 🔐 프롬프트 저장 및 추적
-        prompt_file = log_dir / f"commit_in_{filename}.txt"
-        prompt_file.write_text(full_prompt, encoding="utf-8")
-        token_in = len(enc.encode(full_prompt))
-        prompt_df.loc[len(prompt_df)] = {
-            "IN/OUT": "입력", "VAR NAME": f"commit_in_{filename}",
-            "사용 MODEL NAME": llm_cfg["model"][0],
-            "meta(in)or purpose(out)": "기능 요약, 폴더 구조, 최근 커밋 메시지, 변경 스크립트, diff",
-            "SAVE PATH": str(prompt_file), "업로드 여부": False,
-            "upload platform": "", "token값": token_in,
-            "비용($)": None, "비용(krw)": None
-        }
-        log(f"✅ 커밋 프롬프트 생성 완료: {prompt_file}", log_file)
+        prompt_in_path.parent.mkdir(parents=True, exist_ok=True)
+        prompt_in_path.write_text(full_prompt, encoding="utf-8")
 
-        # LLM 호출
-        response = call_llm(prompt=full_prompt, llm_cfg=llm_cfg, log=lambda m: log(m, log_file))
-        result_file = log_dir / f"commit_out_{filename}.txt"
-        result_file.write_text(response, encoding="utf-8")
-        token_out = len(enc.encode(response))
+        prompts.append(full_prompt)
+        tags.append(id_)
+        meta_rows.append({
+            "id": id_,
+            "name4save": name4save,
+            "save_path": [str(prompt_in_path), str(prompt_out_path)]
+        })
 
-        prompt_df.loc[len(prompt_df)] = {
-            "IN/OUT": "출력", "VAR NAME": f"commit_out_{filename}",
-            "사용 MODEL NAME": llm_cfg["model"][0],
-            "meta(in)or purpose(out)": "최종 커밋 메시지 생성",
-            "SAVE PATH": str(result_file), "업로드 여부": True,
-            "upload platform": ["notify", "record"],
-            "token값": token_out, "비용($)": None, "비용(krw)": None
-        }
-        log(f"✅ 커밋 메시지 생성 완료: {result_file}", log_file)
+    if not prompts:
+        cfg.log("[gen_msg] ❌ 생성된 프롬프트 없음", log_file)
+        return
 
-        save_df(prompt_df, PROMPT_PATH)
-        time.sleep(5)
+    df_for_call = pd.DataFrame(meta_rows)
 
-gen_msg_main()
+    with LLMManager("mk_msg", repo_df, df_for_call=df_for_call) as llm:
+        results = llm.call_all(prompts, tags)
+        for result, row in zip(results, meta_rows):
+            out_path = Path(row["save_path"][1])
+            out_path.write_text(result, encoding="utf-8")
+
+        llm.save_all()

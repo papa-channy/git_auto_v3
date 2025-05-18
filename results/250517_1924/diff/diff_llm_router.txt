@@ -1,0 +1,22 @@
+diff --git a/scripts/llm_router.py b/scripts/llm_router.py
+index fcc7129..661aeb7 100644
+--- a/scripts/llm_router.py
++++ b/scripts/llm_router.py
+@@ -1,6 +1,7 @@
+ import importlib
++from typing import Optional, Callable
+ 
+-def call_llm(prompt: str, llm_cfg: dict, log=None) -> str:
++def call_llm(prompt: str, llm_cfg: dict, log: Callable | None = None) -> str:
+     providers = llm_cfg["provider"]
+     models = llm_cfg["model"]
+     llm_param = {
+@@ -16,7 +17,7 @@ def call_llm(prompt: str, llm_cfg: dict, log=None) -> str:
+             return module.call(prompt, llm_param)
+         except Exception as e:
+             if log:
+-                log(f"⚠️ {model} 호출 실패: {e}")
++                log(f"⚠️ {provider}:{model} 호출 실패 → {e}")
+             continue
+ 
+     raise RuntimeError("❌ 모든 LLM 호출 실패: fallback 실패")

@@ -1,0 +1,30 @@
+diff --git a/scripts/llm_router.py b/scripts/llm_router.py
+index fcc7129..6db359a 100644
+--- a/scripts/llm_router.py
++++ b/scripts/llm_router.py
+@@ -1,6 +1,8 @@
+ import importlib
++from typing import Optional, Callable
++log: Optional[Callable] = None
+ 
+-def call_llm(prompt: str, llm_cfg: dict, log=None) -> str:
++def call_llm(prompt: str, llm_cfg: dict, log: Optional[Callable] = None) -> str:
+     providers = llm_cfg["provider"]
+     models = llm_cfg["model"]
+     llm_param = {
+@@ -13,10 +15,12 @@ def call_llm(prompt: str, llm_cfg: dict, log=None) -> str:
+     for provider, model in zip(providers, models):
+         try:
+             module = importlib.import_module(f"llm.{model}")
++            if not hasattr(module, "call"):
++                raise AttributeError(f"'call' 함수 없음 in llm.{model}")
+             return module.call(prompt, llm_param)
+         except Exception as e:
+             if log:
+-                log(f"⚠️ {model} 호출 실패: {e}")
++                log(f"⚠️ {provider}:{model} 호출 실패 → {e}")
+             continue
+ 
+-    raise RuntimeError("❌ 모든 LLM 호출 실패: fallback 실패")
++    raise RuntimeError("❌ 모든 LLM 호출 실패: fallback 실패")
+\ No newline at end of file

@@ -1,0 +1,295 @@
+diff --git a/scripts/fx_elab.py b/scripts/fx_elab.py
+index 7152955..aa18114 100644
+--- a/scripts/fx_elab.py
++++ b/scripts/fx_elab.py
+@@ -1,166 +1,145 @@
+-import os
+-import json
+-import time
+-import pandas as pd
+-import tiktoken
+-from datetime import datetime
+ from pathlib import Path
+-from scripts.dataframe import load_df, save_df, REPO_PATH, INFO_PATH, STRATEGY_PATH, PROMPT_PATH, init_prompt_df
+-from scripts.llm_router import call_llm
+-
+-# 🔧 로깅 함수
+-def log(message: str, log_file: Path):
+-    with log_file.open("a", encoding="utf-8") as f:
+-        f.write(f"[{datetime.now().strftime('%H:%M:%S')}] {message}\n")
+-
+-def generate_tree_structure(base_path="."):
+-    tree_str = ""
+-    for root, dirs, files in os.walk(base_path):
+-        # 숨김 폴더 및 FILE 제외
+-        dirs[:] = [d for d in dirs if not d.startswith('.')]
+-        files = [f for f in files if not f.startswith('.')]
+-
+-        for file in files:
+-            rel_path = os.path.relpath(os.path.join(root, file), base_path)
+-            tree_str += f"{rel_path}\n"
+-
+-    return tree_str
+-
+-# 📘 README 추출 함수 (H1~H2 + 첫 문단)
+-def extract_readme_summary(readme_path):
+-    with open(readme_path, encoding="utf-8") as file:
+-        content = file.read()
+-    lines = content.split("\n")
+-    summary = []
+-    capture = False
+-    for line in lines:
+-        if line.startswith("# "):
+-            capture = True
+-        elif line.startswith("## ") and capture:
+-            break
+-        if capture:
+-            summary.append(line)
+-    if len(summary) <= 1:  # H1 없으면 첫 단락
+-        summary = content.split("\n\n")[0]
+-    return "\n".join(summary).strip()
+-
+-# 🔑 키워드 기반 코드 줄 추출
+-def extract_keywords_code(filepath):
++from scripts.dataframe import load_df
++from utils.cfg import cfg
++from scripts.llm_mng import LLMManager
++from scripts.ext_info import to_safe_filename
++from record.notion import upload_fx_record
++
++
++def extract_keywords_code(filepath: Path) -> str:
+     keywords = ("def ", "return ", "class ", "self", "@", "from ", "logger")
+-    with open(filepath, encoding="utf-8") as file:
+-        lines = file.readlines()
+-    return ''.join([line for line in lines if any(kw in line for kw in keywords)])
++    try:
++        lines = filepath.read_text(encoding="utf-8").splitlines()
++        return "\n".join([line for line in lines if any(kw in line for kw in keywords)])
++    except Exception:
++        return ""
++
++
++def extract_readme_summary(readme_path: Path) -> str:
++    try:
++        content = readme_path.read_text(encoding="utf-8")
++        lines = content.split("\n")
++        summary, capture = [], False
++        for line in lines:
++            if line.startswith("# "): capture = True
++            elif line.startswith("## ") and capture: break
++            if capture: summary.append(line)
++        return "\n".join(summary).strip() if len(summary) > 1 else content.split("\n\n")[0]
++    except Exception:
++        return ""
++
+ 
+-# ⚙️ main 실행 함수
+ def fx_elab_main():
+-    repo_df = load_df(REPO_PATH)
+-    info_df = load_df(INFO_PATH)
+-    strategy_df = load_df(STRATEGY_PATH)
+-    prompt_df = init_prompt_df()
+-
+-    timestamp = datetime.now().strftime("%y%m%d_%H%M")
+-    log_dir = Path(f"logs/{timestamp}")
+-    log_dir.mkdir(parents=True, exist_ok=True)
+-    log_file = log_dir / "trigger.log"
+-    if not REPO_PATH.exists():
+-        from scripts.ext_info import extract_all_info
+-        extract_all_info()
+-    repo_df = load_df(REPO_PATH)
+-    root_path = Path(repo_df["root path"].iloc[0])
+-    tree_structure = generate_tree_structure(root_path)
+-    llm_cfg_path = Path("config/llm.json")
+-    llm_cfgs = json.loads(llm_cfg_path.read_text(encoding="utf-8"))
+-    fx_cfg = llm_cfgs["llm"]["fx_elab"]  # 💡 여기 키 이름 중요
+-    enc = tiktoken.encoding_for_model("llama4-maverick-instruct-basic")
+-
+-    for idx, row in strategy_df.iterrows():
+-        file_name = row["FILE"]
+-        strategy = row["FILE STRATEGY"]
+-        file_path = root_path / '/'.join(info_df.loc[info_df["FILE"] == file_name, "FILE 위치"].iloc[0])
+-        
+-        # 메인 스크립트 FILE STRATEGY 적용
+-        if strategy == "full_pass":
+-            with file_path.open("r", encoding="utf-8") as file:
+-                main_content = file.read()
+-        elif strategy == "mid_focus":
+-            main_content = extract_keywords_code(file_path)  # 간략화된 방식 (함수 중심 추출 가능)
++    timestamp = cfg.get_timestamp()
++    paths = cfg.get_results_path(timestamp)
++    log_file = cfg.init_log_file(timestamp)
++
++    repo_df = load_df(paths["repo"])
++    info_df = load_df(paths["info"])
++    strategy_df = load_df(paths["strategy"])
++
++    root_path = Path(repo_df["Root path"].iloc[0])
++    readme_path = root_path / "README.md"
++    folder_lines, file_lines = cfg.build_llm_file_structure(root_path)
++    tree_structure = "\n".join(folder_lines + file_lines)
++
++    prompts, tags, files = [], [], []
++
++    for _, row in strategy_df.iterrows():
++        file = row["File"]
++        info_row = info_df[info_df["file"] == file]
++        if info_row.empty:
++            cfg.log(f"[fx_elab] ⚠️ {file} 경로 정보 없음", log_file)
++            continue
++
++        safe_name = to_safe_filename(file)
++        file_path = Path(info_row["path"].iloc[0]) / safe_name
++        strategy = row["File strategy"]
++
++        try:
++            main_content = (
++                file_path.read_text(encoding="utf-8")
++                if strategy == "full_pass" else extract_keywords_code(file_path)
++            )
++        except Exception:
++            main_content = ""
++            cfg.log(f"[fx_elab] ❌ {file} 파일 읽기 실패", log_file)
++
++        related_info = []
++        for related in row["Most Related Files"]:
++            match = info_df[info_df["file"] == related]
++            if match.empty:
++                cfg.log(f"[fx_elab] ⚠️ 관련 파일 없음: {related}", log_file)
++                continue
++            r_path = Path(match["path"].iloc[0]) / to_safe_filename(related)
++            r_code = extract_keywords_code(r_path)
++            r_commit = match["5 latest commit"].iloc[0][:1]
++            related_info.append(f"{related}:\n{r_code}\n최근 커밋: {r_commit[0] if r_commit else ''}\n")
++        if not related_info:
++            related_info.append("관련 파일 없음")
++
++        try:
++            commit_lines = "\n".join(
++                info_row["5 latest commit"].iloc[0][:row["Num of extract file"]]
++            )
++        except Exception:
++            commit_lines = ""
++            cfg.log(f"[fx_elab] ⚠️ 커밋 정보 누락: {file}", log_file)
++
++        readme_flag = row["Readme strategy"]
++        if readme_flag[0]:
++            try:
++                readme_content = (
++                    extract_readme_summary(readme_path)
++                    if readme_flag[1] == "summary"
++                    else readme_path.read_text(encoding="utf-8")
++                )
++            except Exception:
++                readme_content = ""
+         else:
+-            main_content = extract_keywords_code(file_path)
+-        
+-        # 연관 스크립트 요약
+-        related_files_info = []
+-        for related_file in row["연관도 높은 FILE 리스트"]:
+-            related_path = root_path / '/'.join(info_df.loc[info_df["FILE"] == related_file, "FILE 위치"].iloc[0])
+-            related_code = extract_keywords_code(related_path)
+-            recent_commit = info_df.loc[info_df["FILE"] == related_file, "5 LATEST COMMIT"].iloc[0][0]
+-            related_files_info.append(f"{related_file}:\n{related_code}\n최근 커밋: {recent_commit}\n")
+-
+-        # 최근 커밋 메시지 (메인 FILE)
+-        recent_commits_main = info_df.loc[info_df["FILE"] == file_name, "5 LATEST COMMIT"].iloc[0][:row["NUM OF EXTRACT FILE"]]
+-        
+-        # README 처리
+-        readme_strategy = row["readme strategy"]
+-        readme_content = ""
+-        readme_path = root_path / "README.md"
+-        if readme_strategy[0]:
+-            readme_content = extract_readme_summary(readme_path) if readme_strategy[1] == "summary" else readme_path.read_text(encoding="utf-8")
+-
+-        # 프롬프트 생성
+-        fx_in = f"""
++            readme_content = ""
++
++        prompt = f"""
+ 📌 요청 목적:
+ 아래 스크립트의 주요 기능과 로직을 300 tokens 내외로 요약해주세요.
+ 레포 전체 구조에서의 역할과 연계성을 포함해주세요.
+ 
+-📌 분석 FILE: {file_name}
+-📎 기능 유형: {row["기능 유형"]}
+-📎 IMPORTANCE: {row["IMPORTANCE"]}
++📎 분석 FILE: {file}
++📎 기능 유형: {row['Component Type']}
++📎 중요도: {row['Importance']}
+ 
+ 📎 메인 스크립트 내용:
+ {main_content}
+ 
+-📎 최근 커밋 메시지 (메인 FILE):
+-{recent_commits_main}
++📎 최근 커밋 메시지:
++{commit_lines}
+ 
+ 📎 관련 스크립트 요약:
+-{"".join(related_files_info)}
++{"".join(related_info)}
+ 
+ 📎 폴더 구조:
+ {tree_structure}
+ 
+ 📎 README 요약:
+ {readme_content}
+-"""
+-
+-        fx_in_path = log_dir / f"fx_in_{file_name}.txt"
+-        fx_in_path.write_text(fx_in, encoding="utf-8")
+-
+-        token_in = len(enc.encode(fx_in))
+-        prompt_df.loc[len(prompt_df)] = {
+-            "IN/OUT": "입력", "VAR NAME": f"fx_in_{file_name}", "사용 MODEL NAME": "llama4-maverick-instruct-basic",
+-            "meta(in)or purpose(out)": "FILE 내용, 관련 FILE, 커밋 메시지, 폴더 구조, README",
+-            "SAVE PATH": str(fx_in_path), "업로드 여부": False, "upload platform": "",
+-            "token값": token_in, "비용($)": None, "비용(krw)": None
+-        }
+-        log(f"✅ 프롬프트 생성 완료: {fx_in_path}", log_file)
+-
+-        # LLM 호출
+-        fx_out = call_llm(prompt=fx_in, llm_cfg=fx_cfg)#config불러오도록 수정
+-
+-        fx_out_path = log_dir / f"fx_out_{file_name}.txt"
+-        fx_out_path.write_text(fx_out, encoding="utf-8")
+-
+-        token_out = len(enc.encode(fx_out))
+-        prompt_df.loc[len(prompt_df)] = {
+-            "IN/OUT": "출력", "VAR NAME": f"fx_out_{file_name}", "사용 MODEL NAME": "llama4-maverick-instruct-basic",
+-            "meta(in)or purpose(out)": "commit msg 작성 빽그라운드 제작",
+-            "SAVE PATH": str(fx_out_path), "업로드 여부": True, "upload platform": ["notify", "record"],
+-            "token값": token_out, "비용($)": None, "비용(krw)": None
+-        }
+-        log(f"✅ LLM 응답 저장 완료: {fx_out_path}", log_file)
+-
+-        save_df(prompt_df, PROMPT_PATH)
+-        log("✅ prompt_df 저장 완료", log_file)
+-
+-        time.sleep(5)
+-
+-fx_elab_main()
++반드시 한국어로 작성해주세요.
++""".strip()
++
++        prompts.append(prompt)
++        tags.append(file)
++        files.append(file)
++
++    with LLMManager("explain", repo_df, df_for_call=strategy_df) as llm:
++        results = llm.call_all(prompts, tags)
++        for file, response in zip(files, results):
++            if response.startswith("[ERROR]"):
++                cfg.log(f"[fx_elab] ❌ {file} 호출 실패: {response}", log_file)
++                continue
++            try:
++                out_path = paths["explain_out"].with_name(f"out_{to_safe_filename(file)}.txt")
++                out_path.write_text(response, encoding="utf-8")
++                upload_fx_record(filename=file, fx_text=response)
++            except Exception as e:
++                cfg.log(f"[fx_elab] ❌ {file} 노션 업로드 실패: {e}", log_file)
++
++        llm.save_all()

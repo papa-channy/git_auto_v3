@@ -3,14 +3,14 @@ change detection:
 
 llm:
   strategy:
-    provider: ["openai"]
-    model: ["gpt-4o"]
+    provider: ["fireworks"]
+    model: ["llama4-scout-instruct-basic"]
   explain:
     provider: ["fireworks"]
     model: ["llama4-maverick-instruct-basic"]
   mk_msg:
-    provider: ["fireworks"]
-    model: ["llama4-maverick-instruct-basic"]
+    provider: ["openai"]
+    model: ["gpt-4o"]
 
 style:
   language:

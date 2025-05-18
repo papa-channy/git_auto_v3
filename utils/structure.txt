@@ -1,0 +1,83 @@
+|-- config
+    |-- kakao.json
+    |-- user_config.yml
+|-- cost
+    |-- 25_05.txt
+|-- llm
+    |-- gpt-4o.py
+    |-- llama4-maverick-instruct-basic.py
+    |-- llama4-scout-instruct-basic.py
+|-- logs
+    |-- 250517_1907
+        |-- for_debug.log
+    |-- 250517_1924
+        |-- for_debug.log
+|-- notify
+    |-- discord.py
+    |-- gmail.py
+    |-- kakao.py
+    |-- slack.py
+|-- prompt
+    |-- en
+        |-- doc_writing.txt
+        |-- internal.txt
+        |-- internal_detail.txt
+        |-- solo_detail.txt
+        |-- team_proj.txt
+    |-- ko
+        |-- doc_writing.txt
+        |-- internal.txt
+        |-- internal_detail.txt
+        |-- solo_detail.txt
+        |-- team_proj.txt
+|-- record
+    |-- google_drive.py
+    |-- notion.py
+    |-- slack.py
+|-- results
+    |-- 250517_1907
+        |-- df
+            |-- info_df.pkl
+            |-- repo_df.pkl
+            |-- strategy_df.pkl
+        |-- diff
+            |-- diff_cfg.txt
+            |-- diff_classify.txt
+            |-- diff_dataframe.txt
+            |-- diff_ext_info.txt
+            |-- diff_fst_mapper.txt
+            |-- diff_fx_elab.txt
+            |-- diff_gen_msg.txt
+            |-- diff_gpt-4o.txt
+            |-- diff_kakao.txt
+            |-- diff_llama4-scout-instruct-basic.txt
+            |-- diff_llm.txt
+            |-- diff_llm_mng.txt
+            |-- diff_llm_router.txt
+            |-- diff_log.txt
+            |-- diff_mm_gen.txt
+            |-- diff_notion.txt
+            |-- diff_path.txt
+            |-- diff_runall.txt
+            |-- diff_test_log.txt
+            |-- diff_timezone.txt
+            |-- diff_upload.txt
+            |-- diff_upload_utils.txt
+|-- scripts
+    |-- auto.sh
+    |-- classify.py
+    |-- dataframe.py
+    |-- ext_info.py
+    |-- fst_mapper.py
+    |-- fx_elab.py
+    |-- gen_msg.py
+    |-- llm_mng.py
+    |-- llm_router.py
+    |-- mm_gen.py
+    |-- upload.py
+    |-- upload_utils.py
+|-- utils
+    |-- cache.txt
+    |-- cfg.py
+    |-- ex_rate.txt
+    |-- structure.txt

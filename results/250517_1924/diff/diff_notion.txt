@@ -1,0 +1,149 @@
+diff --git a/record/notion.py b/record/notion.py
+index 48e17ac..e0890a5 100644
+--- a/record/notion.py
++++ b/record/notion.py
+@@ -2,10 +2,17 @@ import os
+ import requests
+ import random
+ from datetime import datetime
+-from pathlib import Path
+ from dotenv import load_dotenv
++from pathlib import Path
++
++# 내부 로깅 시스템이 있다면 연동
++try:
++    from utils.cfg import cfg
++except ImportError:
++    cfg = None
+ 
+ load_dotenv()
++
+ NOTION_TOKEN = os.getenv("NOTION_API_KEY")
+ NOTION_PAGE_ID = os.getenv("NOTION_PAGE_ID")
+ 
+@@ -22,32 +29,35 @@ COLORS = [
+     "purple_background", "pink_background"
+ ]
+ 
+-NUM_EMOJIS = ['①','②','③','④','⑤','⑥','⑦','⑧','⑨','⑩','⑪','⑫','⑬','⑭','⑮','⑯','⑰','⑱','⑲','⑳']
+-
+-def get_repo_name():
++def get_repo_name() -> str:
+     import subprocess
+     try:
+-        url = subprocess.run("git config --get remote.origin.url", shell=True, capture_output=True, text=True).stdout.strip()
++        url = subprocess.run(
++            ["git", "config", "--get", "remote.origin.url"],
++            capture_output=True, text=True, shell=True
++        ).stdout.strip()
+         repo = url.rstrip(".git").split("/")[-1] if url else "Unknown"
+         return repo.replace("-", " ").title()
+     except Exception:
+         return "Unknown Repo"
+ 
+-def get_notion_blocks(parent_id):
++def get_notion_blocks(parent_id: str) -> list:
+     url = f"{NOTION_URL_BASE}/blocks/{parent_id}/children?page_size=100"
+     resp = requests.get(url, headers=HEADERS)
+     resp.raise_for_status()
+     return resp.json().get("results", [])
+ 
+-def find_or_create_toggle_block(parent_id, title_text):
++def find_or_create_toggle_block(parent_id: str, title_text: str) -> str:
+     try:
+         children = get_notion_blocks(parent_id)
+         for block in children:
+-            if block["type"] == "toggle" and \
+-               block["toggle"]["rich_text"][0]["text"]["content"] == title_text:
++            if block.get("type") != "toggle":
++                continue
++            rich_texts = block.get("toggle", {}).get("rich_text", [])
++            if rich_texts and rich_texts[0]["text"]["content"] == title_text:
+                 return block["id"]
+     except Exception:
+-        pass
++        pass  # fallback to creation
+ 
+     payload = {
+         "children": [{
+@@ -60,11 +70,15 @@ def find_or_create_toggle_block(parent_id, title_text):
+         }]
+     }
+ 
+-    resp = requests.patch(f"{NOTION_URL_BASE}/blocks/{parent_id}/children", headers=HEADERS, json=payload)
++    resp = requests.patch(
++        f"{NOTION_URL_BASE}/blocks/{parent_id}/children",
++        headers=HEADERS,
++        json=payload
++    )
+     resp.raise_for_status()
+     return resp.json()["results"][0]["id"]
+ 
+-def create_paragraph_block(title: str, text: str):
++def create_paragraph_block(title: str, text: str) -> dict:
+     full_text = f"{title}\n\n{text}" if title else text
+     return {
+         "object": "block",
+@@ -78,7 +92,6 @@ def create_paragraph_block(title: str, text: str):
+         }
+     }
+ 
+-# ✅ 날짜별 기록 업로드 (fx_out 단일 묶음)
+ def upload_fx_record(filename: str, fx_text: str):
+     now = datetime.now()
+     repo_name = get_repo_name()
+@@ -86,19 +99,51 @@ def upload_fx_record(filename: str, fx_text: str):
+     mid_toggle = f"📅 {now.strftime('%y년 %m월')}"
+     time_toggle = f"🕒 {now.strftime('%d일 %p %I시 %M분').replace('AM', '오전').replace('PM', '오후')}"
+ 
++    try:
++        top_id = find_or_create_toggle_block(NOTION_PAGE_ID, top_toggle)
++        mid_id = find_or_create_toggle_block(top_id, mid_toggle)
++        time_id = find_or_create_toggle_block(mid_id, time_toggle)
++
++        blocks = [create_paragraph_block(f"📘 FILE: {filename}", fx_text)]
++
++        requests.patch(
++            f"{NOTION_URL_BASE}/blocks/{time_id}/children",
++            headers=HEADERS,
++            json={"children": blocks}
++        )
++    except Exception as e:
++        msg = f"[NOTION] ❌ {filename} 업로드 실패: {e}"
++        if cfg and hasattr(cfg, "log"):
++            cfg.log(msg, Path("logs/notion_fallback.log"))
++        else:
++            print(msg)
++
++# ✅ 향후 확장용: 여러 파일 한 번에 업로드
++def upload_fx_batch(file_text_pairs: list[tuple[str, str]]):
++    now = datetime.now()
++    repo_name = get_repo_name()
++    top_toggle = f"📁 {repo_name}"
++    mid_toggle = f"📅 {now.strftime('%y년 %m월')}"
++    time_toggle = f"🕒 {now.strftime('%d일 %p %I시 %M분').replace('AM', '오전').replace('PM', '오후')}"
++
+     try:
+         top_id = find_or_create_toggle_block(NOTION_PAGE_ID, top_toggle)
+         mid_id = find_or_create_toggle_block(top_id, mid_toggle)
+         time_id = find_or_create_toggle_block(mid_id, time_toggle)
+ 
+         blocks = [
+-            create_paragraph_block(f"📘 FILE: {filename}", fx_text)
++            create_paragraph_block(f"📘 FILE: {fn}", txt)
++            for fn, txt in file_text_pairs
+         ]
++
+         requests.patch(
+             f"{NOTION_URL_BASE}/blocks/{time_id}/children",
+             headers=HEADERS,
+             json={"children": blocks}
+         )
+     except Exception as e:
+-        print(f"[NOTION] ❌ fx 기록 업로드 실패: {e}")
+-
++        msg = f"[NOTION] ❌ batch 업로드 실패: {e}"
++        if cfg and hasattr(cfg, "log"):
++            cfg.log(msg, Path("logs/notion_fallback.log"))
++        else:
++            print(msg)
